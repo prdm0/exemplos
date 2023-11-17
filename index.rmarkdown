@@ -1,0 +1,305 @@
+---
+title: |
+  | Universidade Federal da Paraíba
+  | Centro de Ciências Exatas e da Natureza
+  | Departamento de Estatística
+abstract-title: "Instruções"
+abstract: Trata-se de apenas de alguns comentários do motivo que me levou abandonar os loops `for`
+
+subtitle: Usando Funcionais em R
+author: "**Prof. Dr. Pedro Rafael D. Marinho**"
+date: today
+date-format: "D/MM/YYYY"
+lang: pt
+language:
+  title-block-author-single: "Professor"
+  title-block-published: "Data da Avaliação"
+format:
+  html:
+    code-link: true
+    toc: true
+    number-sections: false
+    code-copy: true
+    html-math-method: katex
+    self-contained: true
+    code-tools:
+      source: false
+      toggle: false
+      caption: none
+reference-location: margin
+citation-location: margin
+---
+
+
+# Usando funcionais em R
+
+Funcionais é toda função de R que recebe uma outra função como argumento e te retorna um vetor. Lembrando que lista em R também é um vetor.
+
+
+```{r}
+is.vector(list(NULL))
+```
+
+
+Na linguagem R já existe embutido diversos funcionais, que são os funcionais da familia `apply` (`vapply`, `sapply`, `mapply`, `tapply`), o `Map`, `Reduce`, entre outros. Por exemplo, por definição, até a função `optim()` é um funcional, pois passamos uma função para ser otimizada e ela retorna um vetor (no caso uma lista que é também um vetor heterogêneo).
+
+
+Existe uma premissa que deve ser atendida quando cogitamos a hipótese de utilizar um funcional em R, e que é a mesma que cogitamos em utilizar um loop `for`, que é saber a priori o número de iterações.
+
+Nesse momento você poderá estar pensando que em situações como em uma simulação de Monte-Carlo - MC, não daria certo utilizar um funcional para realizar as iterações, pois muitas vezes descartamos amostras que, por exemplo, não teve uma convergência no método de otimização utilizado ou deram erro e daí, não teríamos como saber o número de iterações. Só que, nessa situações, você pode dentro da iteração de MC fazer tratamento de erro/exceções usando `tryCatch()`.
+
+Antes de dar um exemplo usando uma simulação de MC, vou dar um exemplo mais simples. Suponha que desejamos aproximar o valor de $e^x$, pela série abaixo, e suponha que iremos resolver usando loop.
+
+$$e^x = \sum_{i = 1}^n \frac{x^n}{n!},$$
+em que $n$ é um valor grande.
+
+**Usando loop `for`**:
+
+
+```{r}
+#| echo: true
+aprox_ex <- function(x, n = 10L){
+  soma <- 0
+  for(i in 0L:n){
+    soma <- soma + x^i/factorial(i)
+  }
+  return(soma)
+}
+
+aprox_ex(x = 0.5)
+exp(0.5)
+
+```
+
+
+**Usando um funcional**
+
+Com o funcional eu apenas penso em uma única iteração. Dessa forma, basta eu resolver o problema para uma única iteração. Veja o caso de uso do funcional `sapply()` do R base, e logo em seguida do funcional `map()` do pacote [purrr](https://purrr.tidyverse.org/). Ambos trabalham do forma serial. A frente dou o exemplo paralelizado. Nesse caso vai ser rápido serialmente, pois a tarefa não é computacionalmente intensiva.
+
+
+```{r}
+#| echo: true
+
+# A função one_step() é a função em que me preocupo com uma única iteração. Poderia ser uma iteração de MC, por exemplo.
+aprox_ex <- function(x, n = 10L){
+  one_step <- function(i)
+    x^i/factorial(i)
+  sapply(X = 0L:n, FUN = one_step) |>
+  sum()
+}
+aprox_ex(x = 0.5)
+exp(0.5)
+```
+
+
+A priori pode parecer mais complicado o funcional, mas não é. Vamos paralelizar o código. Irei usar a biblioteca [pbmcapply](https://cran.r-project.org/web/packages/pbmcapply/index.html), principalmente em sistemas Unix/Linux. Ela conseque ser mais eficiente que o [furrr](https://github.com/DavisVaughan/furrr).
+
+
+```{r}
+#| echo: true
+
+# Paralelizando, basta trocar o funcional sapply pelo funcional da pbmcapply. O programador não precisa mais pensar na função one_step(). Imagine que one_step() é uma iteração de MC com bootstrap dentro, e com vários detalhes de estatísticas. Ela irá permanecer da forma que está.
+library(pbmcapply)
+
+aprox_ex <- function(x, n = 10L){
+  one_step <- function(i)
+    x^i/factorial(i)
+  pbmcapply::pbmclapply(
+    X = 0L:n,
+    FUN = one_step,
+    mc.cores = parallel::detectCores()
+  ) |>
+  unlist() |>
+   sum()
+}
+aprox_ex(x = 0.5)
+exp(0.5)
+```
+
+
+O pacote **purrr** trabalha com funcionais e implementa uma gama muito grande de funcionais que podem ser úteis assim como os funcionais do R base. Deferentemente dos implementados na biblioteca **pbmcapply** e na **furrr**, os funcionais do R base e do **purrr** são funcionais que trabalham de forma paralela.
+
+No meu material de aulas de estatística computacional eu criei uma seção que detalho como paralelizar um procedimento de MC. Clique [AQUI](https://prdm0.github.io/aulas_computacional/t%C3%B3picos-em-estat%C3%ADstica-computacional.html#paralelizando-um-procedimento-de-monte-carlo) para acessar.
+
+Voltando ao exemplo de aproximar $e^x$, vamos usar a solução do pacote **purrr**:
+
+
+```{r}
+library(purrr)
+
+aprox_ex <- function(x, n = 10L){
+  one_step <- function(i)
+    x^i/factorial(i)
+  purrr::map_dbl(.x = 0L:n, .f = one_step) |>
+  sum()
+}
+aprox_ex(x = 0.5)
+exp(0.5)
+```
+
+
+Perceba a beleza de pensar no paradigma de programação funcional. Note que a função `one_step()` não mudou em cenário algum. Essa poderia ser uma função com mais de mil, linhas, por exemplo. Note também que os funcionais foram muito parecidos. Perceba ainda que não tive nenhum trabalho considerável para paralelizar!
+
+Vamos para um exemplo um pouco mais estatístico, mas simples, para o foco ser a programação. No exemplo, irei fazer uma simulação de MC em que cada iteração eu realizo uma otimização pelo método quasi-Newton BFGS e quero ao final tirar uma média das estimativas de máxima verossimilhança - EMV e irei descartar as amostras em que não houveram convergência. Só isso! Algo muito simples!
+
+**A regra é, irei pensar em uma única iteração de forma completa, e depois o funcional "se vira"**
+
+
+```{r}
+#| warning: false
+simulacao_mc <- function(replicas = 1e3L, n, alpha, beta, par0 = c(1, 1)){
+
+  # Função de log-verossimilhança
+  log_lik <- function(par, x){
+    alpha <- par[1L]
+    beta <- par[2L]
+    -sum(log(dweibull(x = x, shape = alpha, scale = beta)))
+  }
+
+  # Criando uma optim que se der erro me retorna NA
+  my_optim <- function(...){
+    tryCatch(
+      optim(...),
+      error = function(e) NA
+    )
+  }
+
+  # Pensando em uma única iteração de MC. Note que nessa única iteração de MC
+  # tenho que me preocupar com o descarte se não houver não convergência ou se
+  # ocorrer erro.
+  one_step <- function(i){
+    repeat{
+      amostra <- rweibull(n = n, shape = alpha, scale = beta)
+      estimativa <- my_optim(par = par0,  fn = log_lik, x = amostra, method = "BFGS")
+
+      if(is.list(estimativa) && estimativa$convergence == 0)
+        break
+    }
+    return(estimativa$par)
+  } # Fim da minha única iteração de MC.
+
+  # Agora só preciso usar um funcional para fazer tudo. Vou escolher o map()
+  # do pacote purrr. Poderia ser outro!
+  resultados_mc <- purrr::map(.x = 1L:replicas, .f = one_step)
+  matriz_mc <-
+    unlist(resultados_mc) |>
+    matrix(ncol = 2L, byrow = TRUE)
+
+  # Usando outro funcional para tirar médias das colunas da matriz
+  apply(X = matriz_mc, MARGIN = 2L, FUN = mean)
+}
+
+simulacao_mc(
+  replicas = 1e3L,
+  n = 250L,
+  alpha = 1,
+  beta = 1,
+  par0 = c(0.5, 0.5)
+)
+
+```
+
+
+Veja como é simples quando se entende a lógica de um funcional e não preciso ficar trabalhando com idexação de vetores nem matrizes. Tá, e como paralelizar?
+Veja o código abaixo, em que apenas vou trocar a linha referente ao funcional do `map()`, e todo o resto fica da mesma forma! Dessa forma, não preciso alterar meu
+código de simulações de Monte-Carlo.
+
+
+```{r}
+#| warning: false
+
+library(pbmcapply)
+
+simulacao_mc_paralelo <- function(replicas = 1e3L, n, alpha, beta, par0 = c(1, 1)){
+
+  # Função de log-verossimilhança
+  log_lik <- function(par, x){
+    alpha <- par[1L]
+    beta <- par[2L]
+    -sum(log(dweibull(x = x, shape = alpha, scale = beta)))
+  }
+
+  # Criando uma optim que se der erro me retorna NA
+  my_optim <- function(...){
+    tryCatch(
+      optim(...),
+      error = function(e) NA
+    )
+  }
+
+  # Pensando em uma única iteração de MC. Note que nessa única iteração de MC
+  # tenho que me preocupar com o descarte se não houver não convergência ou se
+  # ocorrer erro.
+  one_step <- function(i){
+    repeat{
+      amostra <- rweibull(n = n, shape = alpha, scale = beta)
+      estimativa <- my_optim(par = par0,  fn = log_lik, x = amostra, method = "BFGS")
+
+      if(is.list(estimativa) && estimativa$convergence == 0)
+        break
+    }
+    return(estimativa$par)
+  } # Fim da minha única iteração de MC.
+
+  # Trocando o função map do pacote purrr por um funcional que trabalhe de forma paralela.
+  # resultados_mc <- purrr::map(.x = 1L:replicas, .f = one_step)
+  resultados_mc <- pbmcapply::pbmclapply(X = 1L:replicas, FUN = one_step, mc.cores = parallel::detectCores()) # Você poderia colocar manualmente o número de cores.
+  matriz_mc <-
+    unlist(resultados_mc) |>
+    matrix(ncol = 2L, byrow = TRUE)
+
+  # Usando outro funcional para tirar médias das colunas da matriz
+  apply(X = matriz_mc, MARGIN = 2L, FUN = mean)
+}
+
+simulacao_mc_paralelo(
+  replicas = 1e4L,
+  n = 250L,
+  alpha = 1,
+  beta = 1,
+  par0 = c(0.5, 0.5)
+)
+```
+
+
+Comparando o tempo computacional, para 100 mil réplicas de MC:
+
+
+**Tempo serial**:
+
+
+```{r}
+#| warning: false
+
+library(tictoc)
+
+tic()
+simulacao_mc(
+  replicas = 1e4L,
+  n = 250L,
+  alpha = 1,
+  beta = 1,
+  par0 = c(0.5, 0.5)
+)
+toc()
+```
+
+
+**Tempo paralelo**:
+
+
+```{r}
+#| warning: false
+
+library(tictoc)
+
+tic()
+simulacao_mc_paralelo(
+  replicas = 1e4L,
+  n = 250L,
+  alpha = 1,
+  beta = 1,
+  par0 = c(0.5, 0.5)
+)
+toc()
+```
